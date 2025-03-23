@@ -11,7 +11,7 @@ interface Hypothesis {
 export function parseHypotheses(response: string): { hypotheses: Hypothesis[], cleanedResponse: string } {
   // Regular expression to match markdown code blocks containing hypotheses
   // This regex looks for the exact pattern we specified in the system prompt
-  const hypothesisRegex = /```markdown\n### Hypothesis: ([^\n]+)\n\n([\s\S]*?)```/g;
+  const hypothesisRegex = /<<<\r?\n\s*### Hypothesis:\s*([^\r\n]+)\s*\r?\n\r?\n([\s\S]*?)\s*>>>/g;
   
   const hypotheses: Hypothesis[] = [];
   let cleanedResponse = response;
@@ -57,7 +57,7 @@ export function formatHypothesis(hypothesis: Hypothesis): string {
  * @returns true if the text contains properly formatted hypotheses
  */
 export function hasValidHypotheses(text: string): boolean {
-  const hypothesisRegex = /```markdown\n### Hypothesis: ([^\n]+)\n\n([\s\S]*?)```/g;
+  const hypothesisRegex = /<<<\r?\n\s*### Hypothesis:\s*([^\r\n]+)\s*\r?\n\r?\n([\s\S]*?)\s*>>>/g;
   let match;
   let count = 0;
 
