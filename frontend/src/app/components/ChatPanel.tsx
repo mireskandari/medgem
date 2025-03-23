@@ -5,6 +5,7 @@ import { sendMessage, initiateChat, uploadFile } from "../api/chatbotService";
 import type { ChatResponse } from "../api/chatbotService";
 import ReactMarkdown from 'react-markdown';
 import { MathJax } from 'react-mathjax';
+import { parseHypotheses } from "../lib/hypothesisParser";
 
 type Props = {
   projectId: string;
@@ -14,6 +15,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  hypotheses?: Array<{ title: string; description: string }>;
 }
 
 export default function ChatPanel({ projectId }: Props) {
@@ -80,12 +82,27 @@ export default function ChatPanel({ projectId }: Props) {
         projectId
       );
 
+      // Parse the response for hypotheses
+      const { hypotheses, cleanedResponse } = parseHypotheses(response.response);
+
       // Add assistant response to chat
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: response.response,
+        content: cleanedResponse,
+        hypotheses,
         timestamp: new Date()
       }]);
+
+      // If there are hypotheses, update the hypotheses state
+      if (hypotheses.length > 0) {
+        const storedContent = localStorage.getItem('processedContent');
+        const currentContent = storedContent ? JSON.parse(storedContent) : [];
+        const newContent = [...currentContent, ...hypotheses.map(h => ({
+          header: h.title,
+          content: h.description
+        }))];
+        localStorage.setItem('processedContent', JSON.stringify(newContent));
+      }
     } catch (error) {
       console.error('Error sending message:', error);
       setError('Failed to send message. Please try again.');
