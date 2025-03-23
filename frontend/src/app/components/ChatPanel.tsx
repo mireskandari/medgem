@@ -198,65 +198,55 @@ export default function ChatPanel({ projectId }: Props) {
                   : 'bg-gray-100 text-gray-800'
               }`}
             >
-              <div className="prose prose-sm max-w-none">
-                {msg.role === 'assistant' && (
-                  <ReactMarkdown
-                    components={{
-                      p: ({ children }) => <p className="mb-4">{children}</p>,
-                      ul: ({ children }) => <ul className="list-disc pl-6 mb-4">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal pl-6 mb-4">{children}</ol>,
-                      li: ({ children }) => <li className="mb-2">{children}</li>,
-                      h1: ({ children }) => <h1 className="text-2xl font-bold mb-4">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-xl font-bold mb-3">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-lg font-bold mb-2">{children}</h3>,
-                      code: ({ children }) => (
-                        <code className="bg-gray-100 rounded px-1 py-0.5 font-mono text-sm">
+              {msg.role === 'assistant' ? (
+                <ReactMarkdown
+                  components={{
+                    p: ({ children }) => <p className="mb-4">{children}</p>,
+                    ul: ({ children }) => <ul className="list-disc pl-6 mb-4">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal pl-6 mb-4">{children}</ol>,
+                    li: ({ children }) => <li className="mb-2">{children}</li>,
+                    h1: ({ children }) => <h1 className="text-2xl font-bold mb-4">{children}</h1>,
+                    h2: ({ children }) => <h2 className="text-xl font-bold mb-3">{children}</h2>,
+                    h3: ({ children }) => <h3 className="text-lg font-bold mb-2">{children}</h3>,
+                    code: ({ children }) => (
+                      <code className="bg-gray-100 rounded px-1 py-0.5 font-mono text-sm">
+                        {children}
+                      </code>
+                    ),
+                    pre: ({ children }) => (
+                      <pre className="bg-gray-100 rounded p-4 mb-4 overflow-x-auto">
+                        {children}
+                      </pre>
+                    ),
+                    blockquote: ({ children }) => (
+                      <blockquote className="border-l-4 border-gray-300 pl-4 italic mb-4">
+                        {children}
+                      </blockquote>
+                    ),
+                    table: ({ children }) => (
+                      <div className="overflow-x-auto mb-4">
+                        <table className="min-w-full divide-y divide-gray-200">
                           {children}
-                        </code>
-                      ),
-                      pre: ({ children }) => (
-                        <pre className="bg-gray-100 rounded p-4 mb-4 overflow-x-auto">
-                          {children}
-                        </pre>
-                      ),
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-gray-300 pl-4 italic mb-4">
-                          {children}
-                        </blockquote>
-                      ),
-                      table: ({ children }) => (
-                        <div className="overflow-x-auto mb-4">
-                          <table className="min-w-full divide-y divide-gray-200">
-                            {children}
-                          </table>
-                        </div>
-                      ),
-                      th: ({ children }) => (
-                        <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          {children}
-                        </th>
-                      ),
-                      td: ({ children }) => (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {children}
-                        </td>
-                      ),
-                      math: ({ children }) => (
-                        <MathJax>
-                          {children}
-                        </MathJax>
-                      ),
-                      inlineMath: ({ children }) => (
-                        <MathJax>
-                          {children}
-                        </MathJax>
-                      ),
-                    }}
-                  >
-                    {msg.content}
-                  </ReactMarkdown>
-                )}
-              </div>
+                        </table>
+                      </div>
+                    ),
+                    th: ({ children }) => (
+                      <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {children}
+                      </td>
+                    )
+                  }}
+                >
+                  {msg.content}
+                </ReactMarkdown>
+              ) : (
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+              )}
               <p className="text-xs mt-1 opacity-70">
                 {msg.timestamp.toLocaleTimeString()}
               </p>

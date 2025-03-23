@@ -90,7 +90,7 @@ export default function ResearchPaperPanel({
   setSelectedCard 
 }: Props) {
   const [loading, setLoading] = useState(true);
-  const [paper, setPaper] = useState("");
+  const [paper, setPaper] = useState<string>("");
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editingHypothesis, setEditingHypothesis] = useState<number | null>(null);
@@ -99,102 +99,88 @@ export default function ResearchPaperPanel({
   const supabase = createClientComponentClient();
   
   const [latex, setLatex] = useState(""); // State to store LaTeX input
+  const [selectedHypothesis, setSelectedHypothesis] = useState<{ title: string; description: string } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
-    // Load hypotheses from localStorage
-    const storedContent = localStorage.getItem('processedContent');
-    if (storedContent) {
-      try {
-        const parsedContent = JSON.parse(storedContent);
-        // Convert the processed content into hypotheses format
-        const formattedHypotheses: Hypothesis[] = parsedContent.map((section: { header: string; content: string }) => ({
-          title: section.header,
-          description: section.content
-        }));
-        setHypotheses(formattedHypotheses);
-      } catch (error) {
-        console.error('Error parsing stored content:', error);
-        setError('Failed to load hypotheses');
-      }
-    } else {
-      // Clear hypotheses if no content in localStorage
-      setHypotheses([]);
-    }
-  }, []);
-
-  // Add event listener for hypotheses updates
-  useEffect(() => {
-    const handleHypothesesUpdate = () => {
+    const loadHypotheses = () => {
       const storedContent = localStorage.getItem('processedContent');
       if (storedContent) {
         try {
           const parsedContent = JSON.parse(storedContent);
-          const formattedHypotheses: Hypothesis[] = parsedContent.map((section: { header: string; content: string }) => ({
-            title: section.header,
-            description: section.content
-          }));
-          setHypotheses(formattedHypotheses);
+          setHypotheses(parsedContent);
         } catch (error) {
           console.error('Error parsing stored content:', error);
-          setError('Failed to load hypotheses');
         }
-      } else {
-        setHypotheses([]);
       }
     };
 
-    // Listen for both storage events and our custom event
-    window.addEventListener('storage', handleHypothesesUpdate);
-    window.addEventListener('hypothesesUpdated', handleHypothesesUpdate);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('storage', handleHypothesesUpdate);
-      window.removeEventListener('hypothesesUpdated', handleHypothesesUpdate);
-    };
+    loadHypotheses();
+    window.addEventListener('hypothesesUpdated', loadHypotheses);
+    return () => window.removeEventListener('hypothesesUpdated', loadHypotheses);
   }, []);
 
-  useEffect(() => {
-    const generateResearchPaper = async () => {
-      if (selectedCard !== null && view === "research") {
-        setLoading(true);
-        setError(null);
-        try {
-          // Get the selected hypothesis
-          const selectedHypothesis = hypotheses[selectedCard - 1];
-          
-          // Get current user session
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session?.user?.id) {
-            throw new Error("User not authenticated");
-          }
+  const generateResearchPaper = async () => {
+    if (!selectedHypothesis) return;
+    
+    setIsGenerating(true);
+    setError(null);
+    
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error("User not authenticated");
+      }
 
-          // Send message to chatbot about the selected hypothesis
-          const message = `I have selected the following hypothesis for my research paper:
+      const prompt = `Generate a professional research paper in LaTeX format about the following hypothesis:
+
 Title: ${selectedHypothesis.title}
 Description: ${selectedHypothesis.description}
 
-Please help me generate a research paper based on this hypothesis.`;
-          
-          const chatResponse: ChatResponse = await sendMessage(
-            session.user.id,
-            message,
-            projectId
-          );
+Please format the paper with the following structure:
+1. Abstract
+2. Introduction
+3. Methodology
+4. Results
+5. Conclusion
 
-          // Set the paper content from the chatbot response
-          setPaper(chatResponse.response);
-        } catch (error) {
-          console.error('Error generating research paper:', error);
-          setError(error instanceof Error ? error.message : 'Failed to generate research paper');
-        } finally {
-          setLoading(false);
-        }
-      }
-    };
+Use proper LaTeX formatting with:
+- \\section{} for main sections
+- \\subsection{} for subsections
+- \\textbf{} for emphasis
+- \\textit{} for italics
+- \\begin{itemize} and \\end{itemize} for bullet points
+- \\begin{enumerate} and \\end{enumerate} for numbered lists
+- \\begin{equation} and \\end{equation} for mathematical equations
+- \\begin{figure} and \\end{figure} for figures
+- \\begin{table} and \\end{table} for tables
 
+Use professional academic language and tone throughout. Focus on analyzing the hypothesis and presenting the research findings clearly and concisely.`;
+
+      const response = await sendMessage(session.user.id, prompt, projectId);
+      setPaper(response.response);
+    } catch (error) {
+      console.error('Error generating research paper:', error);
+      setError('Failed to generate research paper. Please try again.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleHypothesisSelect = (hypothesis: { header: string; content: string }) => {
+    setSelectedHypothesis({
+      title: hypothesis.header,
+      description: hypothesis.content
+    });
+    setView("research");
     generateResearchPaper();
-  }, [projectId, selectedCard, view, hypotheses, supabase.auth]);
+  };
+
+  const handleDownload = () => {
+    if (selectedHypothesis) {
+      generatePDF(paper, selectedHypothesis.title);
+    }
+  };
 
   const handleHypothesisEdit = async (hypothesisId: number, editMessage: string) => {
     try {
@@ -314,47 +300,72 @@ Edit request: ${editMessage}`;
 
       if (selectedCard !== null) {
         return (
-          <div className="bg-white p-6 rounded-lg shadow-lg">
-            <div className="prose max-w-none">
-              <div className="whitespace-pre-wrap font-mono text-sm">
-                {paper}
-              </div>
-            </div>
-            {!editingPaper ? (
-              <button
-                onClick={() => setEditingPaper(true)}
-                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                Edit Paper
-              </button>
-            ) : (
-              <div className="mt-4 space-y-4">
-                <textarea
-                  value={editMessage}
-                  onChange={(e) => setEditMessage(e.target.value)}
-                  placeholder="Describe how you want to edit the paper..."
-                  className="w-full p-2 border rounded"
-                  rows={4}
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => handlePaperEdit(editMessage)}
-                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                  >
-                    Save Changes
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingPaper(false);
-                      setEditMessage("");
-                    }}
-                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-                  >
-                    Cancel
-                  </button>
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-lg shadow-lg">
+              <div className="prose max-w-none">
+                <div className="whitespace-pre-wrap font-mono text-sm">
+                  {paper}
                 </div>
               </div>
-            )}
+              {!editingPaper ? (
+                <button
+                  onClick={() => setEditingPaper(true)}
+                  className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  Edit Paper
+                </button>
+              ) : (
+                <div className="mt-4 space-y-4">
+                  <textarea
+                    value={editMessage}
+                    onChange={(e) => setEditMessage(e.target.value)}
+                    placeholder="Describe how you want to edit the paper..."
+                    className="w-full p-2 border rounded"
+                    rows={4}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handlePaperEdit(editMessage)}
+                      className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                    >
+                      Save Changes
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingPaper(false);
+                        setEditMessage("");
+                      }}
+                      className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* LaTeX preview section */}
+            <MathJaxContext>
+              <div className="p-4 max-w-4xl mx-auto">
+                <div className="bg-white rounded-lg shadow-lg p-6">
+                  <h2 className="text-2xl font-bold text-center mb-4">Research Paper Preview</h2>
+                  <div className="text-sm text-gray-600 text-center mb-6">
+                    {new Date().toLocaleDateString()}
+                  </div>
+                  <div className="prose max-w-none">
+                    <MathJax>{paper}</MathJax>
+                  </div>
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                      onClick={handleDownload}
+                    >
+                      Download PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </MathJaxContext>
           </div>
         );
       }
@@ -475,28 +486,6 @@ Edit request: ${editMessage}`;
   return (
     <div className="relative">
       {renderContent()}
-
-      {/* LaTeX input and preview section */}
-      <MathJaxContext>
-        <div className="p-4">
-          <textarea
-            className="w-full h-40 p-2 border rounded"
-            placeholder="Enter LaTeX text here..."
-            value={latex}
-            onChange={(e) => setLatex(e.target.value)}
-          />
-          <h2 className="mt-4">Preview:</h2>
-          <div className="border p-2">
-            <MathJax>{`\\(${latex}\\)`}</MathJax>
-          </div>
-          <button
-            className="mt-4 p-2 bg-blue-500 text-white rounded"
-            onClick={() => generatePDF(latex)} // Call the generatePDF function
-          >
-            Download PDF
-          </button>
-        </div>
-      </MathJaxContext>
 
       {/* Toggle view button */}
       {view !== "documents" && (
