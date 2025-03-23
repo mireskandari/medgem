@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/medical-researcher-454503/gemini-medical-backend:latest', '-f', 'backend/docker/Dockerfile', '.']
+images:
+- 'gcr.io/medical-researcher-454503/gemini-medical-backend:latest'
