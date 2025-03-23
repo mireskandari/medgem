@@ -1,4 +1,4 @@
-"use client";
+'use client';
 import Link from "next/link";
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
@@ -14,14 +14,13 @@ interface UploadItem {
   progress: number;
   status: UploadStatus;
   error?: string;
-  file_id?: string;
-  message?: string;
 }
 
 export default function NewProjectUploadPage() {
   const [showBounce, setShowBounce] = useState(false);
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const router = useRouter();
   const activeUploads = useRef<{ [key: string]: boolean }>({});
 
@@ -42,7 +41,7 @@ export default function NewProjectUploadPage() {
       id: Math.random().toString(36).substr(2, 9),
       file: file,
       progress: 0,
-      status: 'pending'  // Start as pending
+      status: 'pending'
     }));
 
     setUploadItems(prev => [...prev, ...newItems]);
@@ -56,125 +55,104 @@ export default function NewProjectUploadPage() {
   };
 
   const handleRemoveFile = (id: string) => {
-    // Cancel the upload if it's in progress
     if (activeUploads.current[id]) {
       delete activeUploads.current[id];
     }
-    
-    // Remove the item immediately
     setUploadItems(prev => prev.filter(item => item.id !== id));
-    setError(null); // Clear any existing errors
+    setError(null);
   };
 
   const handleGenerateHypotheses = async () => {
     if (!uploadItems.length) return;
-
+    setLoading(true);
     try {
-      // Get current user session
       const supabase = createClientComponentClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) {
         throw new Error("User not authenticated");
       }
 
-      // Initialize chat to get paper_id
-      const { paper_id } = await initiateChat(session.user.id);
-      if (!paper_id) {
-        throw new Error("Failed to get paper ID");
+      const chatResponse = await initiateChat(session.user.id);
+      console.error('Chat initiation response:', chatResponse);
+      const paperId = chatResponse.paper_id;
+      if (!paperId) {
+        throw new Error('No paper_id received from chat initiation');
       }
 
-      // Update upload statuses
       setUploadItems(current => 
         current.map(item => ({
           ...item,
-          status: 'uploading' as UploadStatus,
+          status: 'uploading',
           progress: 0
         }))
       );
 
-      // Upload files
       const uploadResults = await Promise.all(
         uploadItems.map(async (item) => {
           try {
-            const response = await uploadFile(item.file, session.user.id, paper_id);
-            console.log('File upload response:', response);
+            const response = await uploadFile(item.file, session.user.id, paperId);
+            console.error('File upload response:', response);
             return {
-              ...item,
+              id: item.id,
               status: 'completed' as UploadStatus,
               progress: 100,
-              file_id: response.file_id,
-              message: response.message
+              file_id: response.file_id
             };
           } catch (error) {
             console.error(`Error uploading ${item.file.name}:`, error);
             return {
-              ...item,
+              id: item.id,
               status: 'failed' as UploadStatus,
-              progress: 0,
               error: error instanceof Error ? error.message : 'Upload failed'
             };
           }
         })
       );
 
-      // Check if all uploads were successful
+      console.error('All upload results:', uploadResults);
+
       const allSuccessful = uploadResults.every(result => result.status === 'completed');
       if (!allSuccessful) {
         throw new Error('Some files failed to upload');
       }
 
-      // Store paper_id for future use
-      localStorage.setItem('currentPaperId', paper_id);
+      console.error('Sending begin message...');
+      const beginResponse: ChatResponse = await sendMessage(session.user.id, "begin", paperId);
+      console.error('Begin message response:', beginResponse);
 
-      // Parse the response to extract headers and descriptions
-      const responseText = uploadResults[0].message || '';
-      
-      // Split the response into sections based on headers
-      const sections = responseText.split(/(?=#{1,3}\s)/);
-      
-      // Process each section to identify headers and content
-      const processedContent = sections
-        .map((section: string) => {
-          const lines = section.trim().split('\n');
-          const header = lines[0].replace(/^#{1,3}\s/, '').trim();
-          const content = lines.slice(1).join('\n').trim();
-          
-          // Only include sections that look like hypotheses
-          if (header.toLowerCase().includes('hypothesis') || 
-              header.toLowerCase().includes('finding') || 
-              header.toLowerCase().includes('result') ||
-              header.toLowerCase().includes('conclusion')) {
-            return {
-              header,
-              content
-            };
-          }
-          return null;
+      const responseText = beginResponse.response;
+      const sections = responseText.split(/(?=#|##|###)/);
+      const processedContent = sections.map(section => {
+        const lines = section.trim().split('\n');
+        const header = lines[0].replace(/^#+\s*/, '').trim();
+        const content = lines.slice(1).join('\n').trim();
+        return { header, content };
+      }).filter(section => section.content);
+
+      localStorage.setItem('processedContent', JSON.stringify(processedContent));
+      localStorage.setItem('currentPaperId', paperId);
+
+      setUploadItems(current => 
+        current.map(item => {
+          const result = uploadResults.find(r => r.id === item.id);
+          return result ? { ...item, ...result } : item;
         })
-        .filter((section): section is { header: string; content: string } => {
-          if (!section) return false;
-          return Boolean(section.header) && Boolean(section.content);
-        });
+      );
 
-      // Store the processed content for use in the selection tab
-      localStorage.setItem('hypothesesContent', JSON.stringify(processedContent));
-
-      // Update upload statuses
-      setUploadItems(uploadResults);
-
-      // Navigate to the project page
-      router.push(`/projects/${paper_id}`);
+      router.push(`/projects/${paperId}`);
     } catch (error) {
       console.error('Error in handleGenerateHypotheses:', error);
       setUploadItems(current => 
         current.map(item => ({
           ...item,
-          status: 'failed' as UploadStatus,
-          progress: 0,
-          error: error instanceof Error ? error.message : 'An error occurred'
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Failed to process files'
         }))
       );
-      setError(error instanceof Error ? error.message : 'An error occurred');
+      setError('Failed to process files. Please try again.');
+    } finally {
+      // Keep the loader visible for 3 seconds before hiding
+      setTimeout(() => setLoading(false), 3000);
     }
   };
 
@@ -201,8 +179,101 @@ export default function NewProjectUploadPage() {
   const areAllUploadsComplete = uploadItems.length > 0 && uploadItems.every(item => item.status === 'pending');
   const hasFailedUploads = uploadItems.some(item => item.status === 'failed');
 
+  // Loader component for the overlay
+  function Loader() {
+    return (
+      <>
+        <figure className="loader">
+          <div className="dot white"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+          <div className="dot"></div>
+        </figure>
+        <style jsx>{`
+          .loader {
+            width: 6.250em;
+            height: 6.250em;
+            animation: rotate5123 2.4s linear infinite, fadeInOut 2.4s linear infinite;
+            position: relative;
+          }
+          .white {
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            animation: flash 2.4s linear infinite;
+            opacity: 0;
+          }
+          .dot {
+            position: absolute;
+            margin: auto;
+            width: 2.4em;
+            height: 2.4em;
+            border-radius: 100%;
+            transition: all 1s ease;
+          }
+          .dot:nth-child(2) {
+            top: 0;
+            bottom: 0;
+            left: 0;
+            background: #FF4444;
+            animation: dotsY 2.4s linear infinite;
+          }
+          .dot:nth-child(3) {
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #FFBB33;
+            animation: dotsX 2.4s linear infinite;
+          }
+          .dot:nth-child(4) {
+            top: 0;
+            bottom: 0;
+            right: 0;
+            background: #99CC00;
+            animation: dotsY 2.4s linear infinite;
+          }
+          .dot:nth-child(5) {
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #33B5E5;
+            animation: dotsX 2.4s linear infinite;
+          }
+          @keyframes rotate5123 {
+            0% { transform: rotate(0); }
+            10% { width: 6.250em; height: 6.250em; }
+            66% { width: 2.4em; height: 2.4em; }
+            100% { transform: rotate(360deg); width: 6.250em; height: 6.250em; }
+          }
+          @keyframes fadeInOut {
+            0% { opacity: 0; }
+            25% { opacity: 1; }
+            75% { opacity: 1; }
+            100% { opacity: 0; }
+          }
+          @keyframes dotsY {
+            66% { opacity: 0.1; width: 2.4em; }
+            77% { opacity: 1; width: 0; }
+          }
+          @keyframes dotsX {
+            66% { opacity: 0.1; height: 2.4em; }
+            77% { opacity: 1; height: 0; }
+          }
+          @keyframes flash {
+            33% { opacity: 0; border-radius: 0%; }
+            55% { opacity: 0.6; border-radius: 100%; }
+            66% { opacity: 0; }
+          }
+        `}</style>
+      </>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 relative">
       <div className="max-w-3xl mx-auto">
         <div className="text-center">
           <h2 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">
@@ -338,6 +409,13 @@ export default function NewProjectUploadPage() {
           )}
         </div>
       </div>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
+          <Loader />
+        </div>
+      )}
     </div>
   );
 }

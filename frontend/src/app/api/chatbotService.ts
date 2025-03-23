@@ -17,7 +17,7 @@ export interface ChatResponse {
     project_id: string;
 }
 
-const API_BASE_URL = 'http://100.66.19.207:8080';
+const API_BASE_URL = 'http://100.66.22.209:8080';
 
 // Function to handle POST requests using fetch
 async function postData<T>(url: string, data: any): Promise<T> {
