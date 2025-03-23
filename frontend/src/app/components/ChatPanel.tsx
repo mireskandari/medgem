@@ -5,7 +5,7 @@ import { sendMessage, initiateChat, uploadFile } from "../api/chatbotService";
 import type { ChatResponse } from "../api/chatbotService";
 import ReactMarkdown from 'react-markdown';
 import { MathJax } from 'react-mathjax';
-import { parseHypotheses } from "../lib/hypothesisParser";
+import { parseHypotheses, hasValidHypotheses } from "../lib/hypothesisParser";
 
 type Props = {
   projectId: string;
@@ -93,15 +93,20 @@ export default function ChatPanel({ projectId }: Props) {
         timestamp: new Date()
       }]);
 
-      // If there are hypotheses, update the hypotheses state
-      if (hypotheses.length > 0) {
-        const storedContent = localStorage.getItem('processedContent');
-        const currentContent = storedContent ? JSON.parse(storedContent) : [];
-        const newContent = [...currentContent, ...hypotheses.map(h => ({
+      // If there are valid hypotheses, update the hypotheses state and clear old ones
+      if (hasValidHypotheses(response.response)) {
+        // Clear existing hypotheses from localStorage
+        localStorage.removeItem('processedContent');
+        
+        // Store new hypotheses
+        const newContent = hypotheses.map(h => ({
           header: h.title,
           content: h.description
-        }))];
+        }));
         localStorage.setItem('processedContent', JSON.stringify(newContent));
+
+        // Dispatch a custom event to notify other components
+        window.dispatchEvent(new CustomEvent('hypothesesUpdated'));
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -131,6 +136,9 @@ export default function ChatPanel({ projectId }: Props) {
         throw new Error("No paper ID found");
       }
 
+      // Clear existing hypotheses from localStorage
+      localStorage.removeItem('processedContent');
+
       // Upload the file
       const response = await uploadFile(file, session.user.id, paperId);
       console.error('File upload response:', response);
@@ -146,6 +154,9 @@ export default function ChatPanel({ projectId }: Props) {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+
+      // Dispatch a custom event to notify other components
+      window.dispatchEvent(new CustomEvent('hypothesesUpdated'));
     } catch (error) {
       console.error('Error uploading file:', error);
       setError(error instanceof Error ? error.message : 'Failed to upload file');

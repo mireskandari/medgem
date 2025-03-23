@@ -3,6 +3,13 @@ import { useEffect, useState, useRef } from "react";
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { sendMessage } from "../api/chatbotService";
 import type { ChatResponse } from "../api/chatbotService";
+import { MathJax, MathJaxContext } from "better-react-mathjax";
+import { generatePDF } from "../utils/pdfGenerator";
+
+
+
+
+
 
 interface Props {
   projectId: string;
@@ -90,6 +97,8 @@ export default function ResearchPaperPanel({
   const [editingPaper, setEditingPaper] = useState(false);
   const [editMessage, setEditMessage] = useState("");
   const supabase = createClientComponentClient();
+  
+  const [latex, setLatex] = useState(""); // State to store LaTeX input
 
   useEffect(() => {
     // Load hypotheses from localStorage
@@ -107,7 +116,42 @@ export default function ResearchPaperPanel({
         console.error('Error parsing stored content:', error);
         setError('Failed to load hypotheses');
       }
+    } else {
+      // Clear hypotheses if no content in localStorage
+      setHypotheses([]);
     }
+  }, []);
+
+  // Add event listener for hypotheses updates
+  useEffect(() => {
+    const handleHypothesesUpdate = () => {
+      const storedContent = localStorage.getItem('processedContent');
+      if (storedContent) {
+        try {
+          const parsedContent = JSON.parse(storedContent);
+          const formattedHypotheses: Hypothesis[] = parsedContent.map((section: { header: string; content: string }) => ({
+            title: section.header,
+            description: section.content
+          }));
+          setHypotheses(formattedHypotheses);
+        } catch (error) {
+          console.error('Error parsing stored content:', error);
+          setError('Failed to load hypotheses');
+        }
+      } else {
+        setHypotheses([]);
+      }
+    };
+
+    // Listen for both storage events and our custom event
+    window.addEventListener('storage', handleHypothesesUpdate);
+    window.addEventListener('hypothesesUpdated', handleHypothesesUpdate);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('storage', handleHypothesesUpdate);
+      window.removeEventListener('hypothesesUpdated', handleHypothesesUpdate);
+    };
   }, []);
 
   useEffect(() => {
@@ -432,6 +476,29 @@ Edit request: ${editMessage}`;
     <div className="relative">
       {renderContent()}
 
+      {/* LaTeX input and preview section */}
+      <MathJaxContext>
+        <div className="p-4">
+          <textarea
+            className="w-full h-40 p-2 border rounded"
+            placeholder="Enter LaTeX text here..."
+            value={latex}
+            onChange={(e) => setLatex(e.target.value)}
+          />
+          <h2 className="mt-4">Preview:</h2>
+          <div className="border p-2">
+            <MathJax>{`\\(${latex}\\)`}</MathJax>
+          </div>
+          <button
+            className="mt-4 p-2 bg-blue-500 text-white rounded"
+            onClick={() => generatePDF(latex)} // Call the generatePDF function
+          >
+            Download PDF
+          </button>
+        </div>
+      </MathJaxContext>
+
+      {/* Toggle view button */}
       {view !== "documents" && (
         <button
           onClick={() => setView(view === "selection" ? "research" : "documents")}
