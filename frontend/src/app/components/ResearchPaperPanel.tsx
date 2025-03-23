@@ -90,7 +90,7 @@ export default function ResearchPaperPanel({
   setSelectedCard 
 }: Props) {
   const [loading, setLoading] = useState(true);
-  const [paper, setPaper] = useState<string>("");
+  const [paper, setPaper] = useState("");
   const [hypotheses, setHypotheses] = useState<Hypothesis[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [editingHypothesis, setEditingHypothesis] = useState<number | null>(null);
@@ -99,88 +99,114 @@ export default function ResearchPaperPanel({
   const supabase = createClientComponentClient();
   
   const [latex, setLatex] = useState(""); // State to store LaTeX input
-  const [selectedHypothesis, setSelectedHypothesis] = useState<{ title: string; description: string } | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
-    const loadHypotheses = () => {
+    // Load hypotheses from localStorage
+    const storedContent = localStorage.getItem('processedContent');
+    if (storedContent) {
+      try {
+        const parsedContent = JSON.parse(storedContent);
+        // Convert the processed content into hypotheses format
+        const formattedHypotheses: Hypothesis[] = parsedContent.map((section: { header: string; content: string }) => ({
+          title: section.header,
+          description: section.content
+        }));
+        setHypotheses(formattedHypotheses);
+      } catch (error) {
+        console.error('Error parsing stored content:', error);
+        setError('Failed to load hypotheses');
+      }
+    } else {
+      // Clear hypotheses if no content in localStorage
+      setHypotheses([]);
+    }
+  }, []);
+
+  // Add event listener for hypotheses updates
+  useEffect(() => {
+    const handleHypothesesUpdate = () => {
       const storedContent = localStorage.getItem('processedContent');
       if (storedContent) {
         try {
           const parsedContent = JSON.parse(storedContent);
-          setHypotheses(parsedContent);
+          const formattedHypotheses: Hypothesis[] = parsedContent.map((section: { header: string; content: string }) => ({
+            title: section.header,
+            description: section.content
+          }));
+          setHypotheses(formattedHypotheses);
         } catch (error) {
           console.error('Error parsing stored content:', error);
+          setError('Failed to load hypotheses');
+        }
+      } else {
+        setHypotheses([]);
+      }
+    };
+
+    // Listen for both storage events and our custom event
+    window.addEventListener('storage', handleHypothesesUpdate);
+    window.addEventListener('hypothesesUpdated', handleHypothesesUpdate);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('storage', handleHypothesesUpdate);
+      window.removeEventListener('hypothesesUpdated', handleHypothesesUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
+    const generateResearchPaper = async () => {
+      if (selectedCard !== null && view === "research") {
+        setLoading(true);
+        setError(null);
+        try {
+          // Get the selected hypothesis
+          const selectedHypothesis = hypotheses[selectedCard - 1];
+          
+          // Get current user session
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.user?.id) {
+            throw new Error("User not authenticated");
+          }
+
+          // Create a professional prompt for research paper generation
+          const message = `Please generate a professional academic research paper based on the following hypothesis. Format the paper in LaTeX with proper sections and mathematical notation where appropriate.
+
+Required format:
+1. Use LaTeX formatting throughout the paper
+2. Include proper section headers using LaTeX commands (\\section, \\subsection)
+3. Format mathematical equations using LaTeX math mode
+4. Include an abstract, introduction, methodology, results, and conclusion sections
+5. Use professional academic language and tone
+6. Do not include any meta-text or instructions in the output
+7. Format the paper with proper spacing and paragraph structure
+8. Keep the content focused on the hypothesis and its analysis
+
+Hypothesis:
+Title: ${selectedHypothesis.title}
+Description: ${selectedHypothesis.description}
+
+Please generate a complete research paper that follows these guidelines and maintains academic rigor.`;
+          
+          const chatResponse: ChatResponse = await sendMessage(
+            session.user.id,
+            message,
+            projectId
+          );
+
+          // Set the paper content from the chatbot response
+          setPaper(chatResponse.response);
+        } catch (error) {
+          console.error('Error generating research paper:', error);
+          setError(error instanceof Error ? error.message : 'Failed to generate research paper');
+        } finally {
+          setLoading(false);
         }
       }
     };
 
-    loadHypotheses();
-    window.addEventListener('hypothesesUpdated', loadHypotheses);
-    return () => window.removeEventListener('hypothesesUpdated', loadHypotheses);
-  }, []);
-
-  const generateResearchPaper = async () => {
-    if (!selectedHypothesis) return;
-    
-    setIsGenerating(true);
-    setError(null);
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) {
-        throw new Error("User not authenticated");
-      }
-
-      const prompt = `Generate a professional research paper in LaTeX format about the following hypothesis:
-
-Title: ${selectedHypothesis.title}
-Description: ${selectedHypothesis.description}
-
-Please format the paper with the following structure:
-1. Abstract
-2. Introduction
-3. Methodology
-4. Results
-5. Conclusion
-
-Use proper LaTeX formatting with:
-- \\section{} for main sections
-- \\subsection{} for subsections
-- \\textbf{} for emphasis
-- \\textit{} for italics
-- \\begin{itemize} and \\end{itemize} for bullet points
-- \\begin{enumerate} and \\end{enumerate} for numbered lists
-- \\begin{equation} and \\end{equation} for mathematical equations
-- \\begin{figure} and \\end{figure} for figures
-- \\begin{table} and \\end{table} for tables
-
-Use professional academic language and tone throughout. Focus on analyzing the hypothesis and presenting the research findings clearly and concisely.`;
-
-      const response = await sendMessage(session.user.id, prompt, projectId);
-      setPaper(response.response);
-    } catch (error) {
-      console.error('Error generating research paper:', error);
-      setError('Failed to generate research paper. Please try again.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleHypothesisSelect = (hypothesis: { header: string; content: string }) => {
-    setSelectedHypothesis({
-      title: hypothesis.header,
-      description: hypothesis.content
-    });
-    setView("research");
     generateResearchPaper();
-  };
-
-  const handleDownload = () => {
-    if (selectedHypothesis) {
-      generatePDF(paper, selectedHypothesis.title);
-    }
-  };
+  }, [projectId, selectedCard, view, hypotheses, supabase.auth]);
 
   const handleHypothesisEdit = async (hypothesisId: number, editMessage: string) => {
     try {
@@ -358,7 +384,7 @@ Edit request: ${editMessage}`;
                   <div className="mt-6 flex justify-center">
                     <button
                       className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-                      onClick={handleDownload}
+                      onClick={() => generatePDF(paper, "Research Paper")}
                     >
                       Download PDF
                     </button>
